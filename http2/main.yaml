@@ -29,12 +29,12 @@
           file: path={{project_dir}} state=directory
          
         - name: generate rsa key pass
-          shell: openssl genrsa -des3 -passout pass:x -out server.pass.key 2048
+          shell: openssl genrsa -des3 -passout pass:xxxx -out server.pass.key 2048
           args:
             chdir: "{{project_dir}}"
 
         - name: generate rsa key
-          shell: openssl rsa -passin pass:x -in server.pass.key -out server.key
+          shell: openssl rsa -passin pass:xxxx -in server.pass.key -out server.key
           args:
             chdir: "{{project_dir}}"
 
