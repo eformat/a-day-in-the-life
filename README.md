@@ -1,3 +1,8 @@
 # a-day-in-the-life
 
-ansible-playbook -vv main.yaml --step
+Login to openshift using `oc login` then run
+
+```bash
+ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t) --step
+```
+

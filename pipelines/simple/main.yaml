@@ -1,36 +1,43 @@
-# dockerfile build demo example
-#   ansible-playbook -vv main.yaml
-# rebuild existing app from source only
-#   ansible-playbook -vv main.yaml --tags 'build'
-#
+#   ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t)
+#   ansible-playbook -vv main.yaml --tags 'build' --extra-vars token=$(oc whoami -t)
 ---
 - hosts: localhost
   vars:
-    ocp_user: developer
-    ocp_pwd: developer
-    ocp_server: 192.168.137.2:8443
     ocp_project: samplepipeline
   tasks:
+    - name: Locate oc client
+      find:
+        paths: "{{ ansible_env['PATH'].split(':') }}"
+        patterns: 'oc'
+      register: oc_cmd
+
+    - set_fact:
+        oc: "{{ oc_cmd.files[0]['path'] }}"
+      when: oc_cmd.matched != 0
+
     - name: check openshift log in
-      shell: oc whoami
+      command: >-
+        {{oc}} whoami
       ignore_errors: yes
       register: oc_whoami
-      
-    - name: login to openshift
-      shell: "oc login -u {{ocp_user}} -p {{ocp_pwd}} --server=https://{{ocp_server}} --insecure-skip-tls-verify=true"
-      tags: build
-      when: ocp_user not in oc_whoami.stdout
+
+    - name: load template
+      command: >-
+        {{oc}} apply -f https://raw.githubusercontent.com/openshift/origin/master/examples/jenkins/pipeline/samplepipeline.yaml -n openshift
+      register: command_result
+      failed_when: "command_result.rc != 0"
       
     - name: create openshift project "{{ocp_project}}"
-      shell: "oc new-project {{ocp_project}} --display-name='Pipeline Sample' --description='Pipeline Sample'"
+      command: >-
+        {{oc}} new-project {{ocp_project}} --display-name='Pipeline Sample' --description='Pipeline Sample'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
 
     - name: create openshift application
-      shell: "oc new-app jenkins-pipeline-example"
+      shell: "{{ oc }} new-app jenkins-pipeline-example"
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
       
     - name: start pipeline build
-      shell: "oc start-build sample-pipeline"
-      register: command_result        
+      shell: "{{ oc }} start-build sample-pipeline"
+      register: command_result

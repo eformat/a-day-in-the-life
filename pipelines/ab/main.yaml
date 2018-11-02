@@ -1,35 +1,32 @@
-# dockerfile build demo example
-#   ansible-playbook -vv main.yaml
-# rebuild existing app from source only
-#   ansible-playbook -vv main.yaml --tags 'build'
-#
+#   ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t)
+#   ansible-playbook -vv main.yaml --tags 'build' --extra-vars token=$(oc whoami -t)
 ---
 - hosts: localhost
   vars:
-    ocp_user: developer
-    ocp_pwd: developer
-    ocp_server: 192.168.137.2:8443
     ocp_project: bluegreen
   tasks:
-    - name: check openshift log in
-      shell: oc whoami
-      ignore_errors: yes
-      register: oc_whoami
-      
-    - name: login to openshift
-      shell: "oc login -u {{ocp_user}} -p {{ocp_pwd}} --server=https://{{ocp_server}} --insecure-skip-tls-verify=true"
-      tags: build
-      when: ocp_user not in oc_whoami.stdout
-      
+    - name: Locate oc client
+      find:
+        paths: "{{ ansible_env['PATH'].split(':') }}"
+        patterns: 'oc'
+      register: oc_cmd
+
+    - set_fact:
+        oc: "{{ oc_cmd.files[0]['path'] }}"
+      when: oc_cmd.matched != 0
+
     - name: make blugreen route round-robin
-      shell: "oc annotate route/bluegreen haproxy.router.openshift.io/balance=roundrobin"
+      command: >-
+        {{oc}} annotate route/bluegreen haproxy.router.openshift.io/balance=roundrobin
       register: command_result        
 
     - name: set backend service weights
-      shell: "oc set route-backends routes/bluegreen blue=100 green=0"
+      command: >-
+        {{oc}} set route-backends routes/bluegreen blue=100 green=0
       register: command_result        
 
     - name: create ab pipeline
-      shell: "oc create -f https://raw.githubusercontent.com/eformat/bluegreen/master/ab-pipeline.yaml"
+      command: >-
+        {{oc}} create -f https://raw.githubusercontent.com/eformat/bluegreen/master/ab-pipeline.yaml
       register: command_result        
       

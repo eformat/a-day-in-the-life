@@ -1,0 +1,31 @@
+#   ansible-playbook -vv main.yaml
+---
+- hosts: localhost
+  vars:
+    ocp_user: developer
+    ocp_pwd: developer
+    ocp_server: 192.168.137.2:8443
+    github_user: eformat
+    github_key: fill-me-in
+    launchpad_fronted_url: launchpad-frontend.13.70.146.253.nip.io
+  tasks:
+    - name: check openshift log in
+      shell: oc whoami
+      ignore_errors: yes
+      register: oc_whoami
+      
+    - name: login to openshift
+      shell: "oc login -u {{ocp_user}} -p {{ocp_pwd}} --server=https://{{ocp_server}} --insecure-skip-tls-verify=true"
+      tags: build
+      when: ocp_user not in oc_whoami.stdout
+      
+    - name: create openshift project launchpad
+      shell: "oc new-project launchpad-frontend --display-name='Launchpad' --description='Launchpad'"
+      register: command_result
+      failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
+
+    - name: create launchpad
+      shell: "oc new-app https://raw.githubusercontent.com/openshiftio/launchpad-templates/master/openshift/launchpad-template.yaml -p LAUNCHPAD_MISSIONCONTROL_GITHUB_USERNAME={{github_user}} -p LAUNCHPAD_MISSIONCONTROL_GITHUB_TOKEN={{github_key}} -p LAUNCHPAD_MISSIONCONTROL_OPENSHIFT_CONSOLE_URL=https://{{ocp_server}} -p LAUNCHPAD_MISSIONCONTROL_OPENSHIFT_USERNAME={{ocp_user}} -p LAUNCHPAD_MISSIONCONTROL_OPENSHIFT_PASSWORD={{ocp_pwd}} -p LAUNCHPAD_KEYCLOAK_URL='' -p LAUNCHPAD_KEYCLOAK_REALM=''"
+      register: command_result    
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
+      tags: build

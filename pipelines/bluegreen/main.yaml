@@ -1,62 +1,63 @@
-# dockerfile build demo example
-#   ansible-playbook -vv main.yaml
-# rebuild existing app from source only
-#   ansible-playbook -vv main.yaml --tags 'build'
-#
+#   ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t)
+#   ansible-playbook -vv main.yaml --tags 'build' --extra-vars token=$(oc whoami -t)
 ---
 - hosts: localhost
   vars:
-    ocp_user: developer
-    ocp_pwd: developer
-    ocp_server: 192.168.137.2:8443
     ocp_project: bluegreen
   tasks:
-    - name: check openshift log in
-      shell: oc whoami
-      ignore_errors: yes
-      register: oc_whoami
-      
-    - name: login to openshift
-      shell: "oc login -u {{ocp_user}} -p {{ocp_pwd}} --server=https://{{ocp_server}} --insecure-skip-tls-verify=true"
-      tags: build
-      when: ocp_user not in oc_whoami.stdout
-      
+    - name: Locate oc client
+      find:
+        paths: "{{ ansible_env['PATH'].split(':') }}"
+        patterns: 'oc'
+      register: oc_cmd
+
+    - set_fact:
+        oc: "{{ oc_cmd.files[0]['path'] }}"
+      when: oc_cmd.matched != 0
+
     - name: create openshift project "{{ocp_project}}"
-      shell: "oc new-project {{ocp_project}} --display-name='Blue Green Deployments' --description='Blue Green Deployments'"
+      command: >-
+        {{oc}} new-project {{ocp_project}} --display-name='Blue Green Deployments' --description='Blue Green Deployments'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
 
     - name: create blue openshift application
-      shell: "oc new-app 'https://github.com/devops-with-openshift/bluegreen#master' --name=blue"
+      command: >-
+        {{oc}} new-app 'https://github.com/devops-with-openshift/bluegreen#master' --name=blue
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create green openshift application
-      shell: "oc new-app https://github.com/devops-with-openshift/bluegreen#green --name=green"
+      command: >-
+        {{oc}} new-app https://github.com/devops-with-openshift/bluegreen#green --name=green
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create bluegreen pipeline
-      shell: "oc create -f https://raw.githubusercontent.com/eformat/bluegreen/master/bluegreen-pipeline.yaml"
+      command: >-
+        {{oc}} create -f https://raw.githubusercontent.com/eformat/bluegreen/master/bluegreen-pipeline.yaml
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create bluegreen service 
-      shell: "oc expose service blue --name=bluegreen"
+      command: >-
+        {{oc}} expose service blue --name=bluegreen
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create blue service 
-      shell: "oc expose service blue --name=blue"
+      command: >-
+        {{oc}} expose service blue --name=blue
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create green service 
-      shell: "oc expose service green --name=green"
+      command: >-
+        {{oc}} expose service green --name=green
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: start pipeline build
-      shell: "oc start-build bluegreen-pipeline"
+      command: >-
+        {{oc}} start-build bluegreen-pipeline
       register: command_result
-      

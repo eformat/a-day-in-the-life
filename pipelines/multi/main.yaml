@@ -1,128 +1,144 @@
-# dockerfile build demo example
-#   ansible-playbook -vv main.yaml
-# rebuild existing app from source only
-#   ansible-playbook -vv main.yaml --tags 'build'
-#
+#   ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t)
+#   ansible-playbook -vv main.yaml --tags 'build' --extra-vars token=$(oc whoami -t)
 ---
 - hosts: localhost
   vars:
-    ocp_user: developer
-    ocp_pwd: developer
-    ocp_server: 192.168.137.2:8443
-    ocp_domain: 192.168.137.2.xip.io
+    ocp_domain: apps.bar.com
     ocp_registry: docker-registry.default.svc:5000
   tasks:
-    - name: check openshift log in
-      shell: oc whoami
-      ignore_errors: yes
-      register: oc_whoami
-      
-    - name: login to openshift
-      shell: "oc login -u {{ocp_user}} -p {{ocp_pwd}} --server=https://{{ocp_server}} --insecure-skip-tls-verify=true"
-      tags: build
-      when: ocp_user not in oc_whoami.stdout
-      
+    - name: Locate oc client
+      find:
+        paths: "{{ ansible_env['PATH'].split(':') }}"
+        patterns: 'oc'
+      register: oc_cmd
+
+    - set_fact:
+        oc: "{{ oc_cmd.files[0]['path'] }}"
+      when: oc_cmd.matched != 0
+
     - name: create openshift project cicd
-      shell: "oc new-project cicd --display-name='CICD Jenkins' --description='CICD Jenkins'"
+      command: >-
+        {{oc}} new-project cicd --display-name='CICD Jenkins' --description='CICD Jenkins'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
 
     - name: create openshift project development
-      shell: "oc new-project development --display-name='MyApp Development' --description='MyApp Development'"
+      command: >-
+        {{oc}} new-project development --display-name='MyApp Development' --description='MyApp Development'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
 
     - name: create openshift project testing
-      shell: "oc new-project testing --display-name='MyApp Testing' --description='MyApp Testing'"
+      command: >-
+        {{oc}} new-project testing --display-name='MyApp Testing' --description='MyApp Testing'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
 
     - name: create openshift project production
-      shell: "oc new-project production --display-name='MyApp Production' --description='MyApp Production'"
+      command: >-
+        {{oc}} new-project production --display-name='MyApp Production' --description='MyApp Production'
       register: command_result
       failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
       
     - name: add jenkins permission to development project
-      shell: "oc policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n development"
+      command: >-
+        {{oc}} policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n development
       register: command_result
 
     - name: add jenkins permission to testing project
-      shell: "oc policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n testing"
+      command: >-
+        {{oc}} policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n testing
       register: command_result
 
     - name: add jenkins permission to production project
-      shell: "oc policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n production"
+      command: >-
+        {{oc}} policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n production
       register: command_result
       
     - name: allow testing service accout to pull from development
-      shell: "oc policy add-role-to-group system:image-puller system:serviceaccounts:testing -n development"
+      command: >-
+        {{oc}} policy add-role-to-group system:image-puller system:serviceaccounts:testing -n development
       register: command_result
       
     - name: allow production service accout to pull from development
-      shell: "oc policy add-role-to-group system:image-puller system:serviceaccounts:production -n development"
+      command: >-
+        {{oc}} policy add-role-to-group system:image-puller system:serviceaccounts:production -n development
       register: command_result
 
     - name: create jenkins openshift application
-      shell: "oc new-app -n cicd --template=jenkins-persistent -p JENKINS_IMAGE_STREAM_TAG=jenkins-2-centos7:latest -p NAMESPACE=openshift -p MEMORY_LIMIT=2048Mi -p ENABLE_OAUTH=true"
+      command: >-
+        {{oc}} new-app -n cicd --template=jenkins-persistent -p JENKINS_IMAGE_STREAM_TAG=jenkins-2-centos7:latest -p NAMESPACE=openshift -p MEMORY_LIMIT=2048Mi -p ENABLE_OAUTH=true
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
       
     - name: create jenkins pipeline
-      shell: "oc create -n cicd -f https://raw.githubusercontent.com/devops-with-openshift/pipeline-configs/master/pipeline.yaml"
+      command: >-
+        {{oc}} create -n cicd -f https://raw.githubusercontent.com/devops-with-openshift/pipeline-configs/master/pipeline.yaml
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create development openshift application
-      shell: "oc new-app openshift/php:5.6~https://github.com/eformat/cotd.git#master --name=myapp -n development"
+      command: >-
+        {{oc}} new-app openshift/php:5.6~https://github.com/eformat/cotd.git#master --name=myapp -n development
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
       
     - name: create development route
-      shell: "oc expose service myapp --hostname=cotd-development.{{ocp_domain}} --name=myapp -n development"
+      command: >-
+        {{oc}} expose service myapp --hostname=cotd-development.{{ocp_domain}} --name=myapp -n development
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create testing deployment configuration
-      shell: "oc create dc myapp --image={{ocp_registry}}/development/myapp:promoteQA -n testing"
+      command: >-
+        {{oc}} create dc myapp --image={{ocp_registry}}/development/myapp:promoteQA -n testing
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: set image pull policy testing
-      shell: oc patch dc/myapp -p '{"spec":{"template":{"spec":{"containers":[{"name":"default-container","imagePullPolicy":"Always"}]}}}}' -n testing
+      command: >-
+        oc patch dc/myapp -p '{"spec":{"template":{"spec":{"containers":[{"name":"default-container","imagePullPolicy":"Always"}]}}}}' -n testing
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create testing service
-      shell: "oc expose dc myapp --port=8080 -n testing"
+      command: >-
+        {{oc}} expose dc myapp --port=8080 -n testing
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create testing route
-      shell: "oc expose service myapp --hostname=cotd-testing.{{ocp_domain}} --name=myapp -n testing"
+      command: >-
+        {{oc}} expose service myapp --hostname=cotd-testing.{{ocp_domain}} --name=myapp -n testing
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create production deployment configuration
-      shell: "oc create dc myapp --image={{ocp_registry}}/development/myapp:promotePRD -n production"
+      command: >-
+        {{oc}} create dc myapp --image={{ocp_registry}}/development/myapp:promotePRD -n production
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: set image pull policy production
-      shell: oc patch dc/myapp -p '{"spec":{"template":{"spec":{"containers":[{"name":"default-container","imagePullPolicy":"Always"}]}}}}' -n production
+      command: >-
+        oc patch dc/myapp -p '{"spec":{"template":{"spec":{"containers":[{"name":"default-container","imagePullPolicy":"Always"}]}}}}' -n production
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create production service
-      shell: "oc expose dc myapp --port=8080 -n production"
+      command: >-
+        {{oc}} expose dc myapp --port=8080 -n production
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
 
     - name: create production route
-      shell: "oc expose service myapp --hostname=cotd-production.{{ocp_domain}} --name=myapp -n production"
+      command: >-
+        {{oc}} expose service myapp --hostname=cotd-production.{{ocp_domain}} --name=myapp -n production
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"    
       
     - name: start pipeline build
-      shell: "oc start-build pipeline -n cicd"
+      command: >-
+        {{oc}} start-build pipeline -n cicd
       register: command_result
       failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
