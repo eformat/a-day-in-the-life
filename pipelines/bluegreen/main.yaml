@@ -59,7 +59,7 @@
 
     - name: make bluegreen route primary in ux
       command: >-
-        {{oc}} annotate route bluegreen console.alpha.openshift.io/overview-app-route=true
+        {{oc}} annotate route bluegreen --overwrite console.alpha.openshift.io/overview-app-route=true
       register: command_result
       failed_when: "command_result.rc != 0"
 
