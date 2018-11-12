@@ -63,7 +63,7 @@
       register: command_result
       failed_when: "command_result.rc != 0"
 
-  - name: start pipeline build
+    - name: start pipeline build
       command: >-
         {{oc}} start-build bluegreen-pipeline
       register: command_result
