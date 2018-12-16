@@ -1,0 +1,75 @@
+#   ansible-playbook -vv main.yaml --extra-vars token=$(oc whoami -t)
+#   ansible-playbook -vv main.yaml --tags 'build' --extra-vars token=$(oc whoami -t)
+---
+- hosts: localhost
+  vars:
+    ocp_project: chained-builds
+  tasks:
+    - name: Locate oc client
+      find:
+        paths: "{{ ansible_env['PATH'].split(':') }}"
+        patterns: 'oc'
+      register: oc_cmd
+
+    - set_fact:
+        oc: "{{ oc_cmd.files[0]['path'] }}"
+      when: oc_cmd.matched != 0
+
+    - name: check openshift log in
+      command: >-
+        {{oc}} whoami
+      ignore_errors: yes
+      register: oc_whoami
+
+    - name: create openshift project
+      command: >-
+        {{oc}} new-project {{ocp_project}} --display-name='Chained Builds' --description='Chained Builds'
+      register: command_result
+      failed_when: "command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr"
+
+    - name: create development base artifact build 
+      command: >-
+        {{oc}} new-build https://github.com/openshift/openshift-jee-sample.git --name=artifact-build -i jboss-eap71-openshift:latest -e MAVEN_MIRROR_URL=http://nexus.nexus.svc.cluster.local:8081/repository/maven-public/
+      register: command_result
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
+
+    - name: create runtime artifact build 
+      shell: "{{oc}} new-build --name=image-build --dockerfile=$'FROM jboss-eap71-openshift:latest\nCOPY ROOT.war /deployments/ROOT.war' --source-image=artifact-build:latest --source-image-path=/opt/eap/standalone/deployments/ROOT.war:."
+      register: command_result
+      until: command_result.rc == 0
+      retries: 20
+      delay: 5
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"
+
+    - name: create application
+      command: >-
+        {{oc}} new-app image-build --name=my-application
+      register: command_result
+      until: command_result.rc == 0
+      retries: 20
+      delay: 5      
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"      
+
+    - name: create readiness probe
+      command: >-
+        {{oc}} set probe dc/my-application --readiness --open-tcp=8080 --initial-delay-seconds=5 --timeout-seconds=2
+      register: command_result
+      until: command_result.rc == 0
+      retries: 5
+      delay: 2    
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"      
+
+    - name: create liveness probe
+      command: >-
+        {{oc}} set probe dc/my-application --liveness -- echo ok
+      register: command_result
+      until: command_result.rc == 0
+      retries: 5
+      delay: 2    
+      failed_when: "command_result.rc != 0 and 'already exists' not in command_result.stderr"      
+            
+    - name: expose route
+      command: >-
+        {{oc}} expose svc/my-application
+      register: command_result
+      failed_when: "command_result.rc != 0"
